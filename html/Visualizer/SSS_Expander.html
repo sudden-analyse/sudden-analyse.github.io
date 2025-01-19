@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>SSS Expand Visualizer - Enhanced</title>
+  <style>
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      margin: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    .input-area {
+      margin-bottom: 1em;
+    }
+    .label {
+      font-weight: bold;
+    }
+    .btn {
+      padding: 6px 12px;
+      cursor: pointer;
+      margin-left: 5px;
+    }
+    /* 原序列容器 */
+    .sequence-container {
+      display: flex;
+      align-items: center;
+      position: relative; /* 用于内部绝对定位 */
+      margin-bottom: 300px; /* 给下面的预展开留空间 */
+    }
+    .seq-cell {
+      min-width: 20px;
+      height: 15px;
+    /*  border: 1px solid #ccc; */
+      margin-right: 4px;
+      text-align: center;
+      line-height: 30px;
+      position: relative;
+      color: #333;
+    }
+    .candidate-root {
+      color: red; /* 待定根初始用红色 */
+      font-weight: bold;
+    }
+    .bad-root {
+      color: green !important; /* 如果是坏根，绿色覆盖 */
+    }
+
+    /* 预展开的行 - 我们用类似的“seq-cell”风格，但可能要偏移 */
+    .expansion-row {
+      position: absolute;
+      display: flex;
+      top: 300px; /* 让它出现在原序列之下 */
+    }
+    .expansion-cell {
+      min-width: 20px;
+      height: 15px;
+    /*  border: 1px dashed #aaa; */
+      margin-right: 4px;
+      text-align: center;
+      line-height: 30px;
+      color: #666;
+    /*  background: #fafafa; */
+    }
+    /* 若该预展开对应坏根，则整体标绿字 */
+    .bad-root-expansion .expansion-cell {
+      color: green;
+      border-color: #6c6; 
+      font-weight: bold;
+    }
+
+    .exit-point-expansion .expansion-cell {
+      color: green;
+      border-color: red; 
+      background: yellow;
+      font-weight: bold;
+    }
+
+    /* 用来画“L 型”连接的虚线，小技巧：用两个带边框的绝对定位盒子叠加 */
+    .connector {
+      position: absolute;
+      border-left: 1px dotted red;
+      border-bottom: 1px dotted red;
+      /* 下面的尺寸会在JS中动态设置 */
+    }
+    /* 如果这个是坏根的连线，则用绿线 */
+    .connector.bad-root-connector {
+      border-left-color: green;
+      border-bottom-color: green;
+    }
+
+    /* 最后展示 Expand(S) 前五段的容器 */
+    .expand-five-container {
+      margin-top: 80px;
+      font-weight: bold;
+    }
+    .segment {
+      padding: 3px 5px;
+      margin-right: 6px;
+      border-radius: 4px;
+    }
+    .segment-g { color: black; }
+    .segment-b { background: yellow; }
+    .segment-r { color: red; }
+    .segment-g2 { color: green; }
+  </style>
+</head>
+<body>
+  <h1>SSS 序列展开演示（可视化版）</h1>
+
+  <div class="input-area">
+    <span class="label">输入 SSS 序列（逗号分隔）：</span>
+    <input type="text" id="sequenceInput" size="50"
+           value="0,1,2,2,0,1,0,1,2,2">
+    <button class="btn" onclick="performExpansion()">展开</button>
+  </div>
+
+  <!-- 结果区域 -->
+  <div id="visualArea"></div>
+  <div id="finalExpandArea" class="expand-five-container"></div>
+
+<script>
+function performExpansion() {
+  // 1. 获取输入
+  const inputStr = document.getElementById("sequenceInput").value;
+  const seq = inputStr.split(",")
+                      .map(s => parseInt(s.trim()))
+                      .filter(x => !isNaN(x));
+  if (!seq.length) {
+    alert("请正确输入序列！");
+    return;
+  }
+
+  // 先清空展示区域
+  const visualArea = document.getElementById("visualArea");
+  visualArea.innerHTML = "";
+  document.getElementById("finalExpandArea").innerHTML = "";
+
+  // 2. 计算必要信息
+  const n = seq.length;
+  const lastTerm = seq[n - 1];
+
+  // 找待定根
+  let candidateRoots = [];
+  for (let i = 0; i < n - 1; i++) {
+    
+    if (seq[i] < lastTerm) {
+      // 检查 [i+1 ... n-2] 全 >= seq[i]
+      let allGreater = true;
+      for (let j = i+1; j < n-1; j++) {
+        if (seq[j] < seq[i]) {
+          allGreater = false;
+          break;
+        }
+      }
+      if (allGreater) {
+        candidateRoots.push(i);
+      }
+    }
+  }
+
+  // 临时根
+  if (candidateRoots.length === 0) {
+    visualArea.innerHTML = "<p>无待定根，无法进行 SSS 的极限展开（或这是后继序数）。</p>";
+    return;
+  }
+  const m = Math.max(...candidateRoots);
+
+  // 定义一个函数：E(S, x) 预展开
+  function E_S_x(seq, x) {
+    const last = seq[n-1];
+    const D = last - seq[x] - 1;
+    const Gx = seq.slice(0, x);
+    const Bx = seq.slice(x, n-1);
+    // E(S,x) = G(x), B(x), B(x)+D, last+D
+    const BxPlusD = Bx.map(v => v + D);
+    const lastPlusD = [ last + D ];
+    return Gx.concat(Bx).concat(BxPlusD).concat(lastPlusD);
+  }
+
+  const ESm = E_S_x(seq, m);
+
+  // 弹出点 e
+  let smallerRoots = [];
+  for (let x of candidateRoots) {
+    if (x < m) {
+      let ex = E_S_x(seq, x);
+      if (lexCompare(ex, ESm) < 0) {
+        smallerRoots.push(x);
+      }
+    }
+  }
+  let e = null;
+  if (smallerRoots.length > 0) {
+    e = Math.max(...smallerRoots);
+  }
+
+  // 坏根 r
+  let r;
+  let eVal=-1;
+  if (e !== null) {
+    // 坏根是“弹出点后面”的下一个待定根
+    candidateRoots.sort((a,b)=>a-b);
+    let idxE = candidateRoots.indexOf(e);
+    // 取 e 在 candidateRoots 中的位置 +1 即为坏根
+    r = candidateRoots[idxE+1];
+    eVal = candidateRoots[idxE];
+  } else {
+    // 弹出点不存在 -> 坏根是首项(0-based = 0)
+    r = 0;
+  }
+
+  // ============ 一、展示“原序列”，并标红待定根，标绿坏根 =============
+  const seqContainer = document.createElement("div");
+  seqContainer.className = "sequence-container";
+
+  seqContainer.style.marginBottom = (20 * candidateRoots.length +20) + "px"; 
+
+  seq.forEach((val, idx) => {
+    const cell = document.createElement("div");
+    cell.className = "seq-cell";
+    cell.textContent = val;
+
+    // 如果是待定根 -> 标红
+    if (candidateRoots.includes(idx)) {
+      cell.classList.add("candidate-root");
+    }
+    // 如果又是坏根 -> 标绿(覆盖红)
+    if (idx === r) {
+      cell.classList.add("bad-root");
+    }
+    seqContainer.appendChild(cell);
+  });
+
+  visualArea.appendChild(seqContainer);
+
+  // ============ 二、对每个待定根，可视化显示“预展开的新项” + L 型连线 =============
+  candidateRoots.forEach((rootIdx) => {
+    // 预展开
+    const Eroot = E_S_x(seq, rootIdx);
+    // 我们只展示从原序列末项(下标 n-1)之后的新增部分
+    // 也就是 Eroot[n], Eroot[n+1], ...
+    const newlyAdded = Eroot.slice(n-1);
+
+    if (newlyAdded.length === 0) {
+      // 若没有新增项，就无需可视化
+      return;
+    }
+
+    // 在 seqContainer 内部，做一个 expansion-row
+    const expansionRow = document.createElement("div");
+    expansionRow.className = "expansion-row";
+
+    let index = candidateRoots.length - 1 -  candidateRoots.indexOf(rootIdx);
+
+    expansionRow.style.top = (20 * (index+1))  + "px"; // 让它出现在原序列之下
+
+    // 如果这是坏根，对整行标记
+    if (rootIdx === r) {
+      expansionRow.classList.add("bad-root-expansion");
+    }
+
+    // 让它水平偏移一段距离(大约 = rootIdx * (单元格宽度+margin))
+    // 这里简单估计一个宽度 44px（40 宽度 + 4 间距）
+    expansionRow.style.left = (24 * (n-1)) + "px";
+    // +0.5 是为了画出更好的“L”形衔接
+
+    newlyAdded.forEach(val => {
+      const cell = document.createElement("div");
+      cell.className = "expansion-cell";
+      cell.textContent = val;
+      expansionRow.appendChild(cell);
+    });
+
+    seqContainer.appendChild(expansionRow);
+
+    // 画一条“L”型连线(虚线)
+    const connector = document.createElement("div");
+    connector.className = "connector";
+    // 若是坏根，用绿线
+    if (rootIdx === r) {
+      connector.classList.add("bad-root-connector");
+    }
+
+    // 计算“垂直”与“水平”长度：
+    //  - 垂直长度： expansionRow 在原序列下方 ~30px + 行高(30px) = ~60px 左右
+    // 这里简单设置 height=30, width=20, 以形成一个大致"L"
+    connector.style.top = "20px"; // 绝对定位在 .sequence-container 里，从根的位置往下画
+    connector.style.left = (24 * rootIdx + 10) + "px";
+    connector.style.height = (index * 20 + 15) + "px";  // 下方向
+    connector.style.width = ((n-rootIdx-1) * 24 - 10) + "px";   // 右方向
+
+    seqContainer.appendChild(connector);
+  });
+
+  // ============ 三、最后展示 Expand(S) 的前五段：G(r), B(r), B(r)+D, B(r)+2D, B(r)+3D ============
+  const Dr = lastTerm - seq[r] - 1;
+  const Gr = seq.slice(0, r);
+  const Br = seq.slice(r, n-1);
+
+  // 五段分别用不同颜色：
+  //  1) G(r) -> 黑色
+  //  2) B(r) -> 黄色
+  //  3) B(r)+D(r) -> 红色
+  //  4) B(r)+2D(r) -> 绿色
+  //  5) B(r)+3D(r) -> 红色
+  const BrD   = Br.map(v => v + Dr);
+  const Br2D  = Br.map(v => v + 2*Dr);
+  const Br3D  = Br.map(v => v + 3*Dr);
+
+  // 做一个容器
+  const finalLine = document.getElementById("finalExpandArea");
+  // 标题
+  const titleP = document.createElement("p");
+  titleP.textContent = "Expand(S) :";
+  finalLine.appendChild(titleP);
+
+  // 函数：创建一个<span>，带指定 class，用于着色
+  function createSegmentSpan(nums, extraClass) {
+    const span = document.createElement("span");
+    span.className = "segment " + extraClass;
+    span.textContent =  nums.join(",") ;
+    return span;
+  }
+
+  // 组装并显示
+  //   G(r): .segment-g (黑色文字)
+  //   B(r): .segment-b (背景黄色)
+  //   B(r)+D(r): .segment-r (红色文字)
+  //   B(r)+2D(r): .segment-g2 (绿色文字)
+  //   B(r)+3D(r): .segment-r (红色文字)
+  const row = document.createElement("div");
+  row.appendChild(createSegmentSpan(Gr, "segment-g"));
+  row.appendChild(createSegmentSpan(Br, "segment-b"));
+  row.appendChild(createSegmentSpan(BrD, "segment-r"));
+  row.appendChild(createSegmentSpan(Br2D, "segment-g2"));
+  row.appendChild(createSegmentSpan(Br3D, "segment-r"));
+
+  finalLine.appendChild(row);
+}
+
+/** 工具函数：数组字典序比较 */
+function lexCompare(a, b) {
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    if (a[i] < b[i]) return -1;
+    if (a[i] > b[i]) return 1;
+  }
+  if (a.length < b.length) return -1;
+  if (a.length > b.length) return 1;
+  return 0;
+}
+</script>
+
+</body>
+</html>

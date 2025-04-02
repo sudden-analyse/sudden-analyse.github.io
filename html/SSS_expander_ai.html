@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>SSS Expand Visualizer</title>
+  <style>
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      margin: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    .input-area, .output-area {
+      margin-bottom: 1em;
+    }
+    .label {
+      font-weight: bold;
+    }
+    .result-seq {
+      padding: 10px;
+      background: #f8f8f8;
+      border: 1px solid #ccc;
+      white-space: pre-wrap; /* 允许换行 */
+    }
+    .highlight {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>SSS 序列展开演示</h1>
+
+  <div class="input-area">
+    <span class="label">输入一个 SSS 序列（用逗号分隔）：</span>
+    <input type="text" id="sequenceInput" size="50"
+           value="0,1,2,2,0,1,0,1,2,2">
+    <button onclick="performExpansion()">展开</button>
+  </div>
+
+  <div id="resultRoots" class="output-area"></div>
+  <div id="resultExpand" class="output-area"></div>
+
+  <script>
+    // 入口函数：执行整个计算与可视化
+    function performExpansion() {
+      // 1. 获取输入序列
+      const inputStr = document.getElementById("sequenceInput").value;
+      let seq = inputStr.split(",").map(s => parseInt(s.trim()))
+                        .filter(x => !isNaN(x));
+
+      // 2. 如果输入无效则提示
+      if (!seq.length) {
+        alert("请正确输入序列！");
+        return;
+      }
+
+      // =============== 第一步：确认末项、并找待定根 ===============
+      const n = seq.length;
+      const lastTerm = seq[n - 1];  // 末项
+      let candidateRoots = [];      // 待定根的下标（使用0-based索引）
+
+      for (let i = 0; i < n - 1; i++) {
+        if (seq[i] < lastTerm) {
+          // 检查从 i+1 到 n-2（即倒数第二个）的所有元素是否 >= seq[i]
+          let allGreater = true;
+          for (let j = i + 1; j < n - 1; j++) {
+            if (seq[j] < seq[i]) {
+              allGreater = false;
+              break;
+            }
+          }
+          if (allGreater) {
+            candidateRoots.push(i);
+          }
+        }
+      }
+
+      // =============== 第二步：找临时根 m = 待定根中最大的下标 ===============
+      if (candidateRoots.length === 0) {
+        // 没有待定根，理论上也可以给出相应处理
+        showResults("本序列无待定根，无法展开或此时序列应为后继序数。", "");
+        return;
+      }
+      const m = Math.max(...candidateRoots); // 临时根
+
+      // =============== 第三步：找弹出点 e（若存在） ===============
+      // 先写一个函数，用于计算 E(S, x) 的预展开序列（有限）
+      function E_S_x(seq, x) {
+        // G(x): 从 0 到 x-1
+        // B(x): 从 x 到 n-2 (不含 n-1)
+        const last = seq[n - 1];
+        const D = last - seq[x] - 1;
+        const Gx = seq.slice(0, x);
+        const Bx = seq.slice(x, n - 1); // 从 x 到 n-2
+        // 预展开 E(S,x) = G(x), B(x), (B(x)+D), last + D
+        const BxPlusD = Bx.map(v => v + D);
+        const lastPlusD = [last + D];
+        return Gx.concat(Bx).concat(BxPlusD).concat(lastPlusD);
+      }
+
+      // 计算 E(S,m)
+      const ESm = E_S_x(seq, m);
+
+      // 在候选根中找出所有 x < m，满足 E(S,x) 的字典序 < E(S,m) 的那些 x
+      let smallerRoots = [];
+      for (let x of candidateRoots) {
+        if (x < m) {
+          const ESx = E_S_x(seq, x);
+          if (lexCompare(ESx, ESm) < 0) {
+            smallerRoots.push(x);
+          }
+        }
+      }
+      // 弹出点 e 是这些 smallerRoots 中最大的下标
+      let e = null;
+      if (smallerRoots.length > 0) {
+        e = Math.max(...smallerRoots);
+      }
+
+      // =============== 第四步：确定坏根 r ===============
+      let r;
+      if (e !== null) {
+        // 有弹出点，则坏根是“弹出点后面”的下一个待定根
+        // candidateRoots 肯定是升序存的，所以找到 e 在其中的位置，再取下一位
+        // 先对 candidateRoots 排序
+        candidateRoots.sort((a,b)=> a-b);
+        let idxE = candidateRoots.indexOf(e);
+        // 下一个待定根
+        r = candidateRoots[idxE + 1];
+      } else {
+        // 若弹出点不存在，则坏根就是序列首项 (0-based就是 0)
+        r = 0;
+      }
+
+      // 计算坏根的 D(r)
+      const Dr = lastTerm - seq[r] - 1;
+      // G(r) = seq.slice(0, r)
+      const Gr = seq.slice(0, r);
+      // B(r) = seq.slice(r, n-1)
+      const Br = seq.slice(r, n - 1);
+
+      // =============== 第五步：生成 Expand(S) (无限长，这里展示前若干项) ===============
+      // Expand(S) = G(r), B(r), (B(r)+D(r)), (B(r)+2D(r)), ...
+      let expandResult = [];
+      // 先加上 G(r)
+      expandResult = expandResult.concat(Gr);
+
+      // 约定我们只展示前 60 项
+      const MAX_LENGTH = 60;
+      // 拼接无限块
+      let k = 0;
+      while (expandResult.length < MAX_LENGTH) {
+        let block = Br.map(v => v + k * Dr);
+        expandResult = expandResult.concat(block);
+        k++;
+      }
+
+      // =============== 结果输出 ===============
+      // 1) 待定根、临时根、弹出点、坏根
+      let infoHtml = "<p><strong>待定根（0-based）:</strong> " + candidateRoots.join(", ") + "</p>";
+      infoHtml += "<p><strong>临时根 m:</strong> " + m + "</p>";
+      if (e !== null) {
+        infoHtml += "<p><strong>弹出点 e:</strong> " + e + "</p>";
+      } else {
+        infoHtml += "<p><strong>弹出点:</strong> 不存在</p>";
+      }
+      infoHtml += "<p><strong>坏根 r:</strong> " + r + "</p>";
+      infoHtml += "<p><strong>阶差 D(r):</strong> " + Dr + "</p>";
+      document.getElementById("resultRoots").innerHTML = infoHtml;
+
+      // 2) 展开的前若干项
+      document.getElementById("resultExpand").innerHTML = 
+        "<strong>Expand(S) 的前 " + MAX_LENGTH + " 项：</strong><div class='result-seq'>" 
+        + expandResult.join(", ") + "...</div>";
+    }
+
+
+    // 工具函数：比较两个数组的字典序
+    // 若 arr1 < arr2 返回 -1，相等返回0，arr1 > arr2 返回 +1
+    function lexCompare(arr1, arr2) {
+      let len = Math.min(arr1.length, arr2.length);
+      for (let i = 0; i < len; i++) {
+        if (arr1[i] < arr2[i]) return -1;
+        if (arr1[i] > arr2[i]) return 1;
+      }
+      // 前面部分都一样，就长度决定
+      if (arr1.length < arr2.length) return -1;
+      if (arr1.length > arr2.length) return 1;
+      return 0;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sudden Matrix Calculator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .input-section {
+            padding: 15px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            font-family: monospace;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .matrix-output {
+            font-family: monospace;
+            white-space: pre;
+            margin: 10px 0;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .good-row {
+            color: rgb(112, 107, 107);
+            font-weight: bold;
+        }
+        .possible-root {
+            color: red;
+            font-weight: bold;
+        }
+        .expansion-root {
+            background-color: rgb(244, 229, 141);
+            font-weight: bold;
+        }
+        .even-row {
+            color: rgb(203, 44, 84);
+            font-weight: bold;
+        }
+        .odd-row {
+            color: rgb(3, 117, 217);
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .history-section {
+            margin-top: 20px;
+            border-top: 1px solid #ddd;
+            padding-top: 20px;
+        }
+        .history-entry {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        .history-header {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        .clear-history {
+            background-color: #f44336;
+            margin-top: 10px;
+        }
+        .clear-history:hover {
+            background-color: #d32f2f;
+        }
+
+    </style>
+</head>
+<body>
+    <h1>Sudden Matrix Calculator</h1>
+    <div class="container">
+        <div class="input-section">
+            <h3>Enter your matrix:</h3>
+            <p>Format: 0,(1,1),1,2,1,(2,1),1,2,3</p>
+            <textarea id="matrix-input" rows="4">0,(1,1),1,2,1,(2,1),1,2,3</textarea>
+            <button onclick="calculate()">Calculate</button>
+        </div>
+        
+        <div id="output-section"></div>
+        
+        <div class="history-section">
+            <h3>Calculation History</h3>
+            <button class="clear-history" onclick="clearHistory()">Clear History</button>
+            <div id="history-container"></div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize history array
+        let calculationHistory = [];
+        
+        class SuddenMatrix {
+            constructor(matrix) {
+                this.matrix = matrix.map(row => [...row]);
+                this.dim = Math.max(...matrix.map(row => row.length));
+                this.n = matrix.length;
+                
+                for (const row of this.matrix) {
+                    while (row.length < this.dim) {
+                        row.push(0);
+                    }
+                }
+                
+                const lastRow = this.matrix[this.n - 1];
+                const nonZeroIndices = lastRow.map((val, idx) => val !== 0 ? idx : -1).filter(idx => idx !== -1);
+                this.LNZ = nonZeroIndices.length > 0 ? nonZeroIndices[nonZeroIndices.length - 1] : null;
+            }
+            
+            parent(x, y) {
+                if (y === 0) {
+                    for (let i = x - 1; i >= 0; i--) {
+                        if (this.matrix[i][y] < this.matrix[x][y]) {
+                            return i;
+                        }
+                    }
+                    return -1;
+                } else {
+                    let p = this.parent(x, y - 1);
+                    while (p >= 0 && this.matrix[p][y] >= this.matrix[x][y]) {
+                        p = this.parent(p, y - 1);
+                    }
+                    return p;
+                }
+            }
+            
+            ancestor(p, x, y) {
+                if (p >= x) return false;
+                if (this.parent(x, y) === p) return true;
+                return this.ancestor(p, this.parent(x, y), y);
+            }
+            
+            possible_roots() {
+                if (this.LNZ === null) return [];
+                
+                const roots = [];
+                for (let p = 0; p < this.n - 1; p++) {
+                    const parentP = this.parent(p, this.LNZ);
+                    const parentLast = this.parent(this.n - 1, this.LNZ);
+                    
+                    const condition1 = this.ancestor(parentP, parentLast, this.LNZ);
+                    const condition2 = (this.LNZ === 0) || this.ancestor(p, this.n - 1, this.LNZ - 1);
+                    
+                    if (condition1 && condition2) {
+                        roots.push(p);
+                    }
+                }
+                return roots;
+            }
+            
+            ascension(r, x, y) {
+                const R = this.possible_roots();
+                for (const k of R) {
+                    if ((r <= k && this.ancestor(k, x, y)) || k === x) {
+                        return 1;
+                    }
+                }
+                return 0;
+            }
+            
+            delta(r, y) {
+                if (y < this.LNZ) return this.matrix[this.n - 1][y] - this.matrix[r][y];
+                else if (y === this.LNZ) return this.matrix[this.n - 1][y] - this.matrix[r][y] - 1;
+                else return 0;
+            }
+            
+            bigger_than(otherMatrix) {
+                const minDim = Math.min(this.dim, otherMatrix.dim);
+                const minN = Math.min(this.n, otherMatrix.n);
+                
+                if (otherMatrix.dim < this.dim) return true;
+                if (otherMatrix.dim > this.dim) return false;
+                
+                for (let i = 0; i < minN; i++) {
+                    for (let j = 0; j < minDim; j++) {
+                        if (otherMatrix.matrix[i][j] < this.matrix[i][j]) return true;
+                        if (otherMatrix.matrix[i][j] > this.matrix[i][j]) return false;
+                    }
+                }
+                
+                if (otherMatrix.n < this.n) return true;
+                if (otherMatrix.n > this.n) return false;
+                return false;
+            }
+            
+            toString(highlightRoots = [], expansionRoot = null) {
+                const rows = [];
+                for (let i = 0; i < this.n; i++) {
+                    const row = this.matrix[i];
+                    let lastNonZero = -1;
+                    for (let j = row.length - 1; j >= 0; j--) {
+                        if (row[j] !== 0) {
+                            lastNonZero = j;
+                            break;
+                        }
+                    }
+                    
+                    let rowStr;
+                    if (lastNonZero <= 0) {
+                        rowStr = row[0].toString();
+                    } else {
+                        rowStr = '(' + row.slice(0, lastNonZero + 1).join(',') + ')';
+                    }
+                    
+                    if (highlightRoots.includes(i)) {
+                        rowStr = `<span class="possible-root">${rowStr}</span>`;
+                    }
+                    if (expansionRoot !== null && i === expansionRoot) {
+                        rowStr = `<span class="expansion-root">${rowStr}</span>`;
+                    }
+                    
+                    rows.push(rowStr);
+                }
+                return rows.join(',');
+            }
+        }
+
+        class NfBSM {
+            constructor() {}
+            
+            expand(matrix, times = 3, preExpand = false, root = null) {
+                if (preExpand) {
+                    let expandedMatrix = this.expand(matrix, 1, false, root);
+                    const lastVec = [];
+                    for (let i = 0; i < matrix.dim; i++) {
+                        lastVec.push(matrix.matrix[matrix.n - 1][i] + matrix.delta(root, i));
+                    }
+                    // Create a new matrix with the additional row
+                    const newMatrix = expandedMatrix.matrix.matrix.slice(); // Get the underlying array
+                    newMatrix.push(lastVec);
+                    return {
+                        matrix: new SuddenMatrix(newMatrix),
+                        coloredRows: expandedMatrix.coloredRows
+                    };
+                }
+                
+                if (root !== null) {
+                    const expandedMatrix = matrix.matrix.slice(0, -1);
+                    const coloredRows = [];
+                    for (let i = 0; i < matrix.n - 1; i++){
+                        coloredRows.push('good')
+                    }
+                    
+                    for (let i = 0; i < times; i++) {
+                        for (let x = root; x < matrix.n - 1; x++) {
+                            const vec = [];
+                            for (let j = 0; j < matrix.dim; j++) {
+                                vec.push(matrix.matrix[x][j] + matrix.delta(root, j) * (i + 1) * matrix.ascension(root, x, j));
+                            }
+                            expandedMatrix.push(vec);
+                            // Track row colors based on i (even/odd)
+                            coloredRows.push(i % 2 === 0 ? 'even' : 'odd');
+                        }
+                    }
+                    
+                    return {
+                        matrix: new SuddenMatrix(expandedMatrix),
+                        coloredRows: coloredRows,
+                        expansionRoot: root
+                    };
+                }
+                
+                const R = matrix.possible_roots();
+                if (R.length === 0) return {
+                    matrix: new SuddenMatrix([...matrix.matrix]),
+                    coloredRows: []
+                };
+                
+                const exitPoints = [];
+                const lastRootExpanded = this.expand(matrix, 1, true, R[R.length - 1]);
+                
+                for (const r of R.slice(0, -1)) {
+                    const currentExpanded = this.expand(matrix, 1, true, r);
+                    if (lastRootExpanded.matrix.bigger_than(currentExpanded.matrix)) {
+                        exitPoints.push(r);
+                    }
+                }
+                
+                const exitPoint = exitPoints.length > 0 ? exitPoints[exitPoints.length - 1] : -1;
+                
+                let bestRoot = R[R.length - 1];
+                for (const x of R.slice(0, -1)) {
+                    if (x > exitPoint) {
+                        const newMatrix = this.expand(matrix, 1, true, x);
+                        const bestMatrix = this.expand(matrix, 1, true, bestRoot);
+                        if (newMatrix.matrix.bigger_than(bestMatrix.matrix)) {
+                            bestRoot = x;
+                        }
+                    }
+                }
+                
+                return this.expand(matrix, times, false, bestRoot);
+            }
+        }
+
+        function parseMatrixInput(inputStr) {
+            try {
+                inputStr = inputStr.replace(/\s/g, '');
+                if (inputStr === '') return [];
+                
+                const rows = [];
+                let currentPos = 0;
+                
+                while (currentPos < inputStr.length) {
+                    if (inputStr[currentPos] === '(') {
+                        const endPos = inputStr.indexOf(')', currentPos);
+                        if (endPos === -1) throw new Error("Unclosed parenthesis");
+                        
+                        const vectorStr = inputStr.substring(currentPos + 1, endPos);
+                        const vector = vectorStr.split(',').map(num => {
+                            const n = parseInt(num);
+                            if (isNaN(n)) throw new Error("Invalid number");
+                            return n;
+                        });
+                        
+                        rows.push(vector);
+                        currentPos = endPos + 1;
+                    } else {
+                        const commaPos = inputStr.indexOf(',', currentPos);
+                        const endPos = commaPos === -1 ? inputStr.length : commaPos;
+                        
+                        const numStr = inputStr.substring(currentPos, endPos);
+                        const num = parseInt(numStr);
+                        if (isNaN(num)) throw new Error("Invalid number");
+                        
+                        rows.push([num]);
+                        currentPos = endPos;
+                    }
+                    
+                    if (inputStr[currentPos] === ',') {
+                        currentPos++;
+                    }
+                }
+                
+                return rows;
+            } catch (e) {
+                throw new Error("Invalid matrix format: " + e.message);
+            }
+        }
+
+        function formatExpandedMatrix(matrix, coloredRows) {
+            const rows = [];
+            let currentRow = 0;
+            
+            for (let i = 0; i < matrix.n; i++) {
+                const row = matrix.matrix[i];
+                let lastNonZero = -1;
+                for (let j = row.length - 1; j >= 0; j--) {
+                    if (row[j] !== 0) {
+                        lastNonZero = j;
+                        break;
+                    }
+                }
+                
+                let rowStr;
+                if (lastNonZero <= 0) {
+                    rowStr = row[0].toString();
+                } else {
+                    rowStr = '(' + row.slice(0, lastNonZero + 1).join(',') + ')';
+                }
+                
+                // Apply color if this is an expanded row
+                if (currentRow < coloredRows.length) {
+                    const rowClass = coloredRows[currentRow];
+                    rowStr = `<span class="${rowClass}-row">${rowStr}</span>`;
+                    currentRow++;
+                } else if (i >= matrix.n - 1) {
+                    // Last row (not expanded)
+                    rowStr = `<span>${rowStr}</span>`;
+                }
+                
+                rows.push(rowStr);
+            }
+            
+            return rows.join(',');
+        }
+
+        function addToHistory(input, outputHTML) {
+            const timestamp = new Date().toLocaleString();
+            calculationHistory.unshift({
+                timestamp: timestamp,
+                input: input,
+                output: outputHTML
+            });
+            
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const historyContainer = document.getElementById('history-container');
+            historyContainer.innerHTML = '';
+            
+            if (calculationHistory.length === 0) {
+                historyContainer.innerHTML = '<p>No history yet</p>';
+                return;
+            }
+            
+            calculationHistory.forEach((entry, index) => {
+                const entryDiv = document.createElement('div');
+                entryDiv.className = 'history-entry';
+                
+                entryDiv.innerHTML = `
+                    <div class="history-header">${entry.timestamp}</div>
+                    <div><strong>Input:</strong> ${entry.input}</div>
+                    ${entry.output}
+                `;
+                
+                historyContainer.appendChild(entryDiv);
+            });
+        }
+
+        function clearHistory() {
+            calculationHistory = [];
+            renderHistory();
+        }
+
+        function calculate() {
+            try {
+                const inputStr = document.getElementById('matrix-input').value.trim();
+                const inputMatrix = parseMatrixInput(inputStr);
+                
+                if (inputMatrix.length === 0) {
+                    throw new Error("Matrix cannot be empty");
+                }
+                
+                const sm = new SuddenMatrix(inputMatrix);
+                const roots = sm.possible_roots();
+                
+                const nfbsm = new NfBSM();
+                const expansionResult = nfbsm.expand(sm);
+                const expandedMatrix = expansionResult.matrix;
+                const coloredRows = expansionResult.coloredRows;
+                
+                // Find the expansion root by looking at the colored rows
+                let expansionRoot = null;
+                if (coloredRows.length > 0) {
+                    // The expansion root is the first row that was expanded
+                    expansionRoot = expansionResult.expansionRoot;
+                }
+                
+                // Display only the two matrices with large bold font
+                const outputHTML = `
+                    <div class="matrix-output">${sm.toString(roots, expansionRoot)}</div>
+                    <div class="matrix-output">${formatExpandedMatrix(expandedMatrix, coloredRows)}</div>
+                `;
+                
+                document.getElementById('output-section').innerHTML = outputHTML;
+                
+                // Add to history
+                addToHistory(inputStr, outputHTML);
+                
+            } catch (e) {
+                const errorHTML = `<p class="error">Error: ${e.message}</p>`;
+                document.getElementById('output-section').innerHTML = errorHTML;
+                console.error(e);
+                
+                // Add error to history too
+                addToHistory(document.getElementById('matrix-input').value.trim(), errorHTML);
+            }
+        }
+
+        window.onload = function() {
+            calculate();
+            renderHistory();
+        };
+    </script>
+</body>
+</html>
